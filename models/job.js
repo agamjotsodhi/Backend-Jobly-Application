@@ -4,44 +4,47 @@ const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
 const { sqlForPartialUpdate, sqlForQuery } = require("../helpers/sql");
 
-/** Related functions for companies. */
+/** The Job class manages the job-related functionality for the application. */
 
 class Job {
-  /** Create a job (from data), update db, return new job data.
+  /** Add a new job to the database.
    *
-   * data should be { title, salary, equity, company_handle }
+   * This method takes job details like title, salary, equity, and companyHandle,
+   * verifies if the provided companyHandle exists in the database, 
+   * and inserts the new job.
    *
-   * Returns { id, title, salary, equity, company_handle }
+   * Returns the newly created job data: { id, title, salary, equity, companyHandle }.
    *
-   * throw bad request error if handle not in company table
-   * */
+   * Throws BadRequestError if the given companyHandle does not exist.
+   */
 
   static async create({ title, salary, equity, companyHandle }) {
-    const HandleCheck = await db.query(
+    const handleCheck = await db.query(
       `SELECT handle
-           FROM companies
-           WHERE handle = $1`,
+       FROM companies
+       WHERE handle = $1`,
       [companyHandle]
     );
 
-    if (HandleCheck.rows.length === 0)
-      throw new BadRequestError(`Invalid company handle: ${companyHandle}`);
+    if (handleCheck.rows.length === 0) {
+      throw new BadRequestError(`Company handle ${companyHandle} not found.`);
+    }
 
     const result = await db.query(
       `INSERT INTO jobs
-           (title, salary, equity, company_handle)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, title, salary, equity, company_handle AS "companyHandle"`,
+       (title, salary, equity, company_handle)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, salary, equity, company_handle AS "companyHandle"`,
       [title, salary, equity, companyHandle]
     );
-    const job = result.rows[0];
 
-    return job;
+    return result.rows[0];
   }
 
-  /** Find all jobs.
+  /** Retrieve all jobs from the database.
    *
-   * Returns [{ id, title, salary, equity, company_handle }, ...]
+   * Returns an array of job objects, each with: 
+   * { id, title, salary, equity, companyHandle }.
    * */
 
   static async findAll() {
@@ -51,37 +54,41 @@ class Job {
               salary,
               equity,
               company_handle AS "companyHandle"
-           FROM jobs
-           ORDER BY id`
+       FROM jobs
+       ORDER BY id`
     );
+
     return jobsRes.rows;
   }
 
-  /** Search all jobs for those meeting criteria in validated query string
+  /** Search for jobs by certain criteria passed in via query parameters.
    *
-   * first check check if hasEquity is true and handle separately from other criteria
+   * The method checks for fields such as minSalary, title (partial match), 
+   * and whether the job has equity (equity > 0).
    *
-   * Returns [{ id, title, salary, equity, companyHandle }, ...]
+   * Returns a filtered list of jobs matching the criteria: 
+   * [{ id, title, salary, equity, companyHandle }, ...]
    */
 
   static async searchAll(fields) {
     let equityClause, finalWhereClause, finalValues;
+
     if (fields.hasEquity) {
       equityClause = "equity > 0";
     }
     delete fields.hasEquity;
 
     if (Object.keys(fields).length === 0) {
-      finalWhereClause = equityClause;
+      finalWhereClause = equityClause || "";
       finalValues = [];
     } else {
       const { whereClause, values } = sqlForQuery(fields, {
         title: { colname: "title", operator: "ILIKE" },
-        minSalary: { colname: "salary", operator: ">=" },
+        minSalary: { colname: "salary", operator: ">=" }
       });
 
       finalWhereClause = equityClause
-        ? whereClause + " AND " + equityClause
+        ? `${whereClause} AND ${equityClause}`
         : whereClause;
 
       finalValues = values;
@@ -98,15 +105,17 @@ class Job {
        ORDER BY id`,
       finalValues
     );
+
     return jobsRes.rows;
   }
 
-  /** Given a job id, return data about job.
+  /** Given a job ID, retrieve its details.
    *
-   * Returns { id, title, salary, equity, companyHandle }
+   * Returns the job data: 
+   * { id, title, salary, equity, companyHandle }.
    *
-   * Throws NotFoundError if not found.
-   **/
+   * Throws NotFoundError if the job is not found.
+   */
 
   static async get(id) {
     const jobRes = await db.query(
@@ -115,28 +124,26 @@ class Job {
               salary,
               equity,
               company_handle AS "companyHandle"
-           FROM jobs
-           WHERE id = $1`,
+       FROM jobs
+       WHERE id = $1`,
       [id]
     );
 
     const job = jobRes.rows[0];
 
-    if (!job) throw new NotFoundError(`No job with id: ${id}`);
+    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
 
     return job;
   }
 
-  /** Update job data with `data`.
+  /** Update job data with the provided fields.
    *
-   * This is a "partial update" --- it's fine if data doesn't contain all the
-   * fields; this only changes provided ones.
+   * This method supports partial updates; it will only modify the fields 
+   * provided in the data object.
    *
-   * Data can include: { title, salary, equity }
+   * Returns the updated job data: { id, title, salary, equity, companyHandle }.
    *
-   * Returns { id, title, salary, equity, companyHandle }
-   *
-   * Throws NotFoundError if not found.
+   * Throws NotFoundError if the job does not exist.
    */
 
   static async update(id, data) {
@@ -146,35 +153,33 @@ class Job {
     const querySql = `UPDATE jobs 
                       SET ${setCols} 
                       WHERE id = ${idVarIdx} 
-                      RETURNING id, 
-                                title,
-                                salary,
-                                equity,
-                                company_handle AS "companyHandle"`;
+                      RETURNING id, title, salary, equity, company_handle AS "companyHandle"`;
+
     const result = await db.query(querySql, [...values, id]);
     const job = result.rows[0];
 
-    if (!job) throw new NotFoundError(`No job: ${id}`);
+    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
 
     return job;
   }
 
-  /** Delete given job from database; returns undefined.
+  /** Remove a job from the database by its ID.
    *
-   * Throws NotFoundError if job not found.
-   **/
+   * Throws NotFoundError if the job does not exist.
+   */
 
   static async remove(id) {
     const result = await db.query(
       `DELETE
-           FROM jobs
-           WHERE id = $1
-           RETURNING id`,
+       FROM jobs
+       WHERE id = $1
+       RETURNING id`,
       [id]
     );
+
     const job = result.rows[0];
 
-    if (!job) throw new NotFoundError(`No job: ${id}`);
+    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
   }
 }
 
