@@ -3,18 +3,18 @@
 const db = require("../db.js");
 const User = require("../models/user");
 const Company = require("../models/company");
-const Job = require("../models/job");
+const Application = require("../models/application");
+const Job = require("../models/job.js");
 const { createToken } = require("../helpers/tokens");
 
-let testJobIds = [];
-
 async function commonBeforeAll() {
-  // Clean up existing data
+  // noinspection SqlWithoutWhere
   await db.query("DELETE FROM users");
+  // noinspection SqlWithoutWhere
   await db.query("DELETE FROM companies");
-  await db.query("DELETE FROM jobs");
+  await db.query("DELETE from jobs");
+  await db.query("ALTER SEQUENCE jobs_id_seq RESTART WITH 1");
 
-  // Create test companies
   await Company.create({
     handle: "c1",
     name: "C1",
@@ -37,17 +37,6 @@ async function commonBeforeAll() {
     logoUrl: "http://c3.img",
   });
 
-  // Create test jobs and store their IDs
-  testJobIds[0] = (await Job.create(
-    { title: "J1", salary: 1, equity: "0.1", companyHandle: "c1" })).id;
-  testJobIds[1] = (await Job.create(
-    { title: "J2", salary: 2, equity: "0.2", companyHandle: "c1" })).id;
-  testJobIds[2] = (await Job.create(
-    { title: "J3", salary: 3, /* equity null */ companyHandle: "c1" })).id;
-  // Store job IDs in the testJobIds array for later use in tests
-  testJobIds = jobResults.rows.map(row => row.id);
-
-  // Create test users
   await User.register({
     username: "u1",
     firstName: "U1F",
@@ -62,7 +51,7 @@ async function commonBeforeAll() {
     lastName: "U2L",
     email: "user2@user.com",
     password: "password2",
-    isAdmin: false,
+    isAdmin: true,
   });
   await User.register({
     username: "u3",
@@ -72,6 +61,36 @@ async function commonBeforeAll() {
     password: "password3",
     isAdmin: false,
   });
+
+  await Job.create({
+    title: "j1",
+    salary: 50000,
+    equity: 0,
+    companyHandle: "c1",
+  });
+  await Job.create({
+    title: "j2",
+    salary: 60000,
+    equity: 0.01,
+    companyHandle: "c1",
+  });
+  await Job.create({
+    title: "j3",
+    salary: 40000,
+    equity: 0,
+    companyHandle: "c2",
+  });
+  await Job.create({
+    title: "j1",
+    salary: 70000,
+    equity: 0,
+    companyHandle: "c2",
+  });
+
+  await Application.create("u1", 2, "interested");
+  await Application.create("u1", 3, "applied");
+  await Application.create("u2", 3, "applied");
+  await Application.create("u2", 4, "rejected");
 }
 
 async function commonBeforeEach() {
@@ -87,6 +106,8 @@ async function commonAfterAll() {
 }
 
 const u1Token = createToken({ username: "u1", isAdmin: false });
+const u2Token = createToken({ username: "u2", isAdmin: true });
+const u3Token = createToken({ username: "u3", isAdmin: false });
 
 module.exports = {
   commonBeforeAll,
@@ -94,5 +115,6 @@ module.exports = {
   commonAfterEach,
   commonAfterAll,
   u1Token,
-  testJobIds, // Exporting testJobIds to be used in tests
+  u2Token,
+  u3Token,
 };
