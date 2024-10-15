@@ -30,6 +30,7 @@ describe("authenticate", function () {
       lastName: "U1L",
       email: "u1@email.com",
       isAdmin: false,
+      jobs: [2, 3],
     });
   });
 
@@ -117,6 +118,7 @@ describe("findAll", function () {
         lastName: "U1L",
         email: "u1@email.com",
         isAdmin: false,
+        jobs: [2, 3],
       },
       {
         username: "u2",
@@ -124,6 +126,15 @@ describe("findAll", function () {
         lastName: "U2L",
         email: "u2@email.com",
         isAdmin: false,
+        jobs: [3, 4],
+      },
+      {
+        username: "u3",
+        firstName: "U3F",
+        lastName: "U3L",
+        email: "u3@email.com",
+        isAdmin: false,
+        jobs: [null],
       },
     ]);
   });
@@ -140,6 +151,7 @@ describe("get", function () {
       lastName: "U1L",
       email: "u1@email.com",
       isAdmin: false,
+      jobs: [2, 3],
     });
   });
 
@@ -168,6 +180,7 @@ describe("update", function () {
     expect(job).toEqual({
       username: "u1",
       ...updateData,
+      jobs: [2, 3],
     });
   });
 
@@ -181,6 +194,7 @@ describe("update", function () {
       lastName: "U1L",
       email: "u1@email.com",
       isAdmin: false,
+      jobs: [2, 3],
     });
     const found = await db.query("SELECT * FROM users WHERE username = 'u1'");
     expect(found.rows.length).toEqual(1);
@@ -214,8 +228,7 @@ describe("update", function () {
 describe("remove", function () {
   test("works", async function () {
     await User.remove("u1");
-    const res = await db.query(
-        "SELECT * FROM users WHERE username='u1'");
+    const res = await db.query("SELECT * FROM users WHERE username='u1'");
     expect(res.rows.length).toEqual(0);
   });
 
