@@ -1,185 +1,132 @@
 "use strict";
 
 const db = require("../db");
-const { BadRequestError, NotFoundError } = require("../expressError");
-const { sqlForPartialUpdate, sqlForQuery } = require("../helpers/sql");
-
-/** The Job class manages the job-related functionality for the application. */
+const { NotFoundError } = require("../expressError");
+const { sqlForPartialUpdate } = require("../helpers/sql");
 
 class Job {
-  /** Add a new job to the database.
-   *
-   * This method takes job details like title, salary, equity, and companyHandle,
-   * verifies if the provided companyHandle exists in the database, 
-   * and inserts the new job.
-   *
-   * Returns the newly created job data: { id, title, salary, equity, companyHandle }.
-   *
-   * Throws BadRequestError if the given companyHandle does not exist.
+  /** 
+   * Add a new job to the database and return its details.
+   * Input: { title, salary, equity, companyHandle }
+   * Output: { id, title, salary, equity, companyHandle }
    */
-
   static async create({ title, salary, equity, companyHandle }) {
-    const handleCheck = await db.query(
-      `SELECT handle
-       FROM companies
-       WHERE handle = $1`,
-      [companyHandle]
-    );
-
-    if (handleCheck.rows.length === 0) {
-      throw new BadRequestError(`Company handle ${companyHandle} not found.`);
-    }
-
     const result = await db.query(
-      `INSERT INTO jobs
-       (title, salary, equity, company_handle)
+      `INSERT INTO jobs (title, salary, equity, company_handle)
        VALUES ($1, $2, $3, $4)
        RETURNING id, title, salary, equity, company_handle AS "companyHandle"`,
       [title, salary, equity, companyHandle]
     );
-
-    return result.rows[0];
+    return result.rows[0];  // Return the newly created job.
   }
 
-  /** Retrieve all jobs from the database.
-   *
-   * Returns an array of job objects, each with: 
-   * { id, title, salary, equity, companyHandle }.
-   * */
-
-  static async findAll() {
-    const jobsRes = await db.query(
-      `SELECT id,
-              title,
-              salary,
-              equity,
-              company_handle AS "companyHandle"
-       FROM jobs
-       ORDER BY id`
-    );
-
-    return jobsRes.rows;
-  }
-
-  /** Search for jobs by certain criteria passed in via query parameters.
-   *
-   * The method checks for fields such as minSalary, title (partial match), 
-   * and whether the job has equity (equity > 0).
-   *
-   * Returns a filtered list of jobs matching the criteria: 
-   * [{ id, title, salary, equity, companyHandle }, ...]
+  /**
+   * Retrieve a list of all jobs, with optional filters.
+   * Filters: minSalary (>=), hasEquity (true for equity > 0), title (partial match).
+   * Returns: List of matching jobs with company info.
    */
+  static async findAll(filters = {}) {
+    const { minSalary, hasEquity, title } = filters;
+    let query = `
+      SELECT j.id, j.title, j.salary, j.equity, 
+             j.company_handle AS "companyHandle", 
+             c.name AS "companyName"
+      FROM jobs j
+      LEFT JOIN companies AS c ON c.handle = j.company_handle`;
 
-  static async searchAll(fields) {
-    let equityClause, finalWhereClause, finalValues;
+    const conditions = [];
+    const values = [];
 
-    if (fields.hasEquity) {
-      equityClause = "equity > 0";
-    }
-    delete fields.hasEquity;
-
-    if (Object.keys(fields).length === 0) {
-      finalWhereClause = equityClause || "";
-      finalValues = [];
-    } else {
-      const { whereClause, values } = sqlForQuery(fields, {
-        title: { colname: "title", operator: "ILIKE" },
-        minSalary: { colname: "salary", operator: ">=" }
-      });
-
-      finalWhereClause = equityClause
-        ? `${whereClause} AND ${equityClause}`
-        : whereClause;
-
-      finalValues = values;
+    // Apply filters only if provided.
+    if (minSalary !== undefined) {
+      values.push(minSalary);
+      conditions.push(`salary >= $${values.length}`);
     }
 
-    const jobsRes = await db.query(
-      `SELECT id,
-              title,
-              salary,
-              equity,
-              company_handle AS "companyHandle"
-       FROM jobs
-       WHERE ${finalWhereClause}
-       ORDER BY id`,
-      finalValues
-    );
+    if (hasEquity) conditions.push(`equity > 0`);
 
-    return jobsRes.rows;
+    if (title) {
+      values.push(`%${title}%`);
+      conditions.push(`title ILIKE $${values.length}`);
+    }
+
+    // Append conditions to query if any filters are applied.
+    if (conditions.length) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
+    query += " ORDER BY title";  // Order results by job title.
+    const result = await db.query(query, values);
+
+    return result.rows;  // Return the list of jobs.
   }
 
-  /** Given a job ID, retrieve its details.
-   *
-   * Returns the job data: 
-   * { id, title, salary, equity, companyHandle }.
-   *
-   * Throws NotFoundError if the job is not found.
+  /**
+   * Retrieve a specific job by its ID, including company details.
+   * Throws an error if the job isn't found.
+   * Returns: { id, title, salary, equity, company }
    */
-
   static async get(id) {
     const jobRes = await db.query(
-      `SELECT id,
-              title,
-              salary,
-              equity,
+      `SELECT id, title, salary, equity, 
               company_handle AS "companyHandle"
-       FROM jobs
-       WHERE id = $1`,
+       FROM jobs WHERE id = $1`, 
       [id]
     );
 
     const job = jobRes.rows[0];
+    if (!job) throw new NotFoundError(`No job: ${id}`);
 
-    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
+    const companyRes = await db.query(
+      `SELECT handle, name, description, 
+              num_employees AS "numEmployees", 
+              logo_url AS "logoUrl"
+       FROM companies WHERE handle = $1`, 
+      [job.companyHandle]
+    );
+
+    job.company = companyRes.rows[0];  // Attach company details to the job.
+    delete job.companyHandle;  // Clean up unnecessary property.
 
     return job;
   }
 
-  /** Update job data with the provided fields.
-   *
-   * This method supports partial updates; it will only modify the fields 
-   * provided in the data object.
-   *
-   * Returns the updated job data: { id, title, salary, equity, companyHandle }.
-   *
-   * Throws NotFoundError if the job does not exist.
+  /**
+   * Update job data with provided fields.
+   * Partial updates are supported (only provided fields are changed).
+   * Throws an error if the job isn't found.
+   * Returns: Updated job details.
    */
-
   static async update(id, data) {
     const { setCols, values } = sqlForPartialUpdate(data, {});
-    const idVarIdx = "$" + (values.length + 1);
+    const query = `
+      UPDATE jobs 
+      SET ${setCols} 
+      WHERE id = $${values.length + 1} 
+      RETURNING id, title, salary, equity, 
+                company_handle AS "companyHandle"`;
 
-    const querySql = `UPDATE jobs 
-                      SET ${setCols} 
-                      WHERE id = ${idVarIdx} 
-                      RETURNING id, title, salary, equity, company_handle AS "companyHandle"`;
-
-    const result = await db.query(querySql, [...values, id]);
+    const result = await db.query(query, [...values, id]);
     const job = result.rows[0];
 
-    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
+    if (!job) throw new NotFoundError(`No job: ${id}`);
 
-    return job;
+    return job;  // Return the updated job details.
   }
 
-  /** Remove a job from the database by its ID.
-   *
-   * Throws NotFoundError if the job does not exist.
+  /**
+   * Remove a job from the database by its ID.
+   * Throws an error if the job isn't found.
+   * Returns: Nothing.
    */
-
   static async remove(id) {
     const result = await db.query(
-      `DELETE
-       FROM jobs
-       WHERE id = $1
-       RETURNING id`,
+      `DELETE FROM jobs WHERE id = $1 
+       RETURNING id`, 
       [id]
     );
 
-    const job = result.rows[0];
-
-    if (!job) throw new NotFoundError(`No job found with ID: ${id}`);
+    if (!result.rows.length) throw new NotFoundError(`No job: ${id}`);
   }
 }
 

@@ -1,10 +1,7 @@
 const { BadRequestError } = require("../expressError");
 
 /* sqlForPartialUpdate, Helper function
-
- - will be used by a calling function
- - takes in two arguments
- - returns SQL string, and a list of values to partially update object
+ - A helper function that takes in 2 arguments, returning: a SQL string and a list of values to partially update object
 
  - `dataToUpdate`: An object that holds the data fields and their new values to be updated
  - e.g. {firstName: 'Aliya', age: 32}
@@ -23,7 +20,6 @@ const { BadRequestError } = require("../expressError");
   setCols: 'first_name=$1, age=$2',
   values: ['Aliya', 32]
 }
-
 */
 
 function sqlForPartialUpdate(dataToUpdate, jsToSql) {
@@ -45,5 +41,5 @@ function sqlForPartialUpdate(dataToUpdate, jsToSql) {
 }
 
 
-
 module.exports = { sqlForPartialUpdate };
+

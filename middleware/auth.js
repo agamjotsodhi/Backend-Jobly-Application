@@ -1,22 +1,21 @@
 "use strict";
 
-/** Convenience middleware to handle common auth cases in routes. */
+/** Convenience middleware to handle common authentication and authorization cases in routes. */
 
 const jwt = require("jsonwebtoken");
 const { SECRET_KEY } = require("../config");
-const { UnauthorizedError } = require("../expressError");
-
+const { UnauthorizedError, ForbiddenError } = require("../expressError");
 
 /** Middleware: Authenticate user.
  *
- * If a token was provided, verify it, and, if valid, store the token payload
- * on res.locals (this will include the username and isAdmin field.)
+ * If a token is provided, verify it. If valid, store the token payload
+ * on `res.locals.user` (this will include fields like `username` and `isAdmin`).
  *
- * It's not an error if no token was provided or if the token is not valid.
+ * It's not an error if no token is provided or if the token is invalid.
  */
 function authenticateJWT(req, res, next) {
   try {
-    const authHeader = req.headers && req.headers.authorization;
+    const authHeader = req.headers.authorization;
     if (authHeader) {
       const token = authHeader.replace(/^[Bb]earer /, "").trim();
       res.locals.user = jwt.verify(token, SECRET_KEY);
@@ -27,8 +26,9 @@ function authenticateJWT(req, res, next) {
   }
 }
 
-/** Middleware to use when they must be logged in.
- * If not, raises Unauthorized.
+/** Middleware: Ensure the user is logged in.
+ *  
+ * If not logged in, raise `UnauthorizedError`.
  */
 function ensureLoggedIn(req, res, next) {
   try {
@@ -39,31 +39,35 @@ function ensureLoggedIn(req, res, next) {
   }
 }
 
-/** Middleware to use when they be logged in as an admin user.
- *  If not, raises Unauthorized.
+/** Middleware: Ensure the user is an admin.
+ *  
+ * If not logged in or not an admin, raise `UnauthorizedError`.
  */
 function ensureAdmin(req, res, next) {
-  try {
-    if (!res.locals.user || !res.locals.user.isAdmin) {
-      throw new UnauthorizedError();
-    }
-    return next();
-  } catch (err) {
-    return next(err);
+  if (!res.locals.user || !res.locals.user.isAdmin) {
+    return next(new UnauthorizedError());
   }
+  next();
 }
 
-/** Middleware to use when a user must either be an admin or the correct user. The username will be a required parameter
- * If not, raises UnauthorizedError.
+/** Middleware: Ensure the user is either an admin or the user whose data is being accessed.
+ *
+ * If not logged in, raise `UnauthorizedError`.
+ * If logged in but neither an admin nor the correct user, raise `ForbiddenError`.
  */
-function ensureCorrectUserOrAdmin(req, res, next) {
+function ensureAdminOrSelf(req, res, next) {
   try {
-    const user = res.locals.user;
-    
-    // Check if the user is either the correct user (from the route) or an admin
-    if (!(user && (user.isAdmin || user.username === req.params.username))) {
+    if (!res.locals.user) {
       throw new UnauthorizedError();
     }
+
+    const username = res.locals.user.username;
+    const isAdmin = res.locals.user.isAdmin;
+
+    if (!isAdmin && username !== req.params.username) {
+      throw new ForbiddenError();
+    }
+
     return next();
   } catch (err) {
     return next(err);
@@ -74,5 +78,5 @@ module.exports = {
   authenticateJWT,
   ensureLoggedIn,
   ensureAdmin,
-  ensureCorrectUserOrAdmin,
+  ensureAdminOrSelf,
 };

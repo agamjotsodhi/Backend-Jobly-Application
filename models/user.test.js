@@ -241,3 +241,41 @@ describe("remove", function () {
     }
   });
 });
+
+/************************************* applyToJob */
+
+describe("applyToJob", function () {
+  test("works", async function () {
+    await User.applyToJob("u1", testJobIds[0]);
+
+    const res = await db.query(
+      "SELECT * FROM applications WHERE job_id=$1 AND username=$2",
+      [testJobIds[0], "u1"]
+    );
+
+    expect(res.rows).toEqual([
+      {
+        job_id: testJobIds[0],
+        username: "u1",
+      },
+    ]);
+  });
+
+  test("throws NotFoundError if job doesn't exist", async function () {
+    try {
+      await User.applyToJob("u1", 9999); // Non-existent job ID
+      fail(); // Should not reach this line
+    } catch (err) {
+      expect(err instanceof NotFoundError).toBeTruthy();
+    }
+  });
+
+  test("throws NotFoundError if user doesn't exist", async function () {
+    try {
+      await User.applyToJob("nope", testJobIds[1]); // Non-existent username
+      fail(); // Should not reach this line
+    } catch (err) {
+      expect(err instanceof NotFoundError).toBeTruthy();
+    }
+  });
+});

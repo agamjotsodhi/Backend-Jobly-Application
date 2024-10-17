@@ -213,6 +213,42 @@ class User {
 
     if (!user) throw new NotFoundError(`No user: ${username}`);
   }
+
+  /**
+   * Apply for a job by adding an entry to the applications table.
+   * 
+   * @param {string} username - Applicant's username.
+   * @param {number} jobId - ID of the job to apply for.
+   */
+
+  static async applyToJob(username, jobId) {
+    // Make sure the job exists.
+    const jobCheck = await db.query(
+      `SELECT id FROM jobs WHERE id = $1`,
+      [jobId]
+    );
+    if (!jobCheck.rows[0]) throw new NotFoundError(`No job with ID: ${jobId}`);
+
+    // Make sure the user exists.
+    const userCheck = await db.query(
+      `SELECT username FROM users WHERE username = $1`,
+      [username]
+    );
+    if (!userCheck.rows[0]) throw new NotFoundError(`No user with username: ${username}`);
+
+    // Add the application to the database.
+    await db.query(
+      `INSERT INTO applications (job_id, username) VALUES ($1, $2)`,
+      [jobId, username]
+    );
+  }
+
 }
+
+
+
+
+
+
 
 module.exports = User;
